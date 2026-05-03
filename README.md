@@ -360,3 +360,235 @@ GO
 
 ### 4.Viết 01 Store Procedure trả về một tập kết quả (Result set) từ lệnh SELECT sau khi đã join nhiều bảng. (SV TỰ NGHĨ RA YÊU CẦU CỦA SP VÀ VIẾT SP GIẢI QUYẾT NÓ)
 
+```sql
+-- Kiểm tra và xóa SP cũ nếu đã tồn tại
+IF OBJECT_ID('dbo.usp_LayDanhSachSanPhamChiTiet', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.usp_LayDanhSachSanPhamChiTiet;
+GO
+
+-- Tạo Stored Procedure
+CREATE PROCEDURE dbo.usp_LayDanhSachSanPhamChiTiet
+    @TenDanhMuc NVARCHAR(50) -- Tham số lọc tùy chọn
+AS
+BEGIN
+    -- Trả về tập kết quả sau khi Join 2 bảng
+    SELECT 
+        S.MaSanPham, 
+        S.TenSanPham, 
+        S.DonGia, 
+        S.SoLuongTon, 
+        D.TenDanhMuc
+    FROM [SanPham] AS S
+    INNER JOIN [DanhMuc] AS D ON S.MaDanhMuc = D.MaDanhMuc
+    WHERE D.TenDanhMuc LIKE '%' + @TenDanhMuc + '%';
+END;
+GO
+```
+<img width="2559" height="1599" alt="image" src="https://github.com/user-attachments/assets/43251881-07b7-419a-80d8-b6db072a0562" />
+<img width="2559" height="1599" alt="image" src="https://github.com/user-attachments/assets/5c54d4a5-230a-4ea6-ba1c-b7faee6ae5d1" />
+
+# Phần 4: Trigger và Xử lý logic nghiệp vụ (Kiến thức 11)
+
+### 1. Viết 01 Trigger để tự động làm gì đó tại 1 bảng B khi mà dữ liệu thay đổi dữ liệu ở bảng A. Logic giải quyết do sv tự nghĩ ra, sao cho thực tế và thuyết phục.
+
+1. Yêu cầu nghiệp vụ (Logic thực tế)
+Bảng A: [ChiTietHoaDon] (lưu thông tin bán hàng).
+
+Bảng B: [SanPham] (lưu thông tin tồn kho).
+
+Logic: Khi một dòng dữ liệu mới được thêm vào [ChiTietHoaDon] (bán hàng thành công), Trigger sẽ tự động trừ đi số lượng đã bán tương ứng khỏi cột [SoLuongTon] trong bảng [SanPham].
+
+2. Thiết lập cấu trúc (Giả định)
+Trước tiên, bạn cần đảm bảo bảng [ChiTietHoaDon] tồn tại:
+```sql
+-- Tạo bảng ChiTietHoaDon
+CREATE TABLE [ChiTietHoaDon] (
+    [MaHD] INT PRIMARY KEY,
+    [MaSanPham] INT,
+    [SoLuongBan] INT,
+    FOREIGN KEY ([MaSanPham]) REFERENCES [SanPham]([MaSanPham])
+);
+GO
+```
+<img width="2559" height="1599" alt="image" src="https://github.com/user-attachments/assets/76ca4c04-5d01-4f8e-ac04-5ce8bc1ab095" />
+```sql
+-- Kiểm tra và xóa Trigger cũ nếu tồn tại
+IF OBJECT_ID('dbo.trg_CapNhatTonKho', 'TR') IS NOT NULL
+    DROP TRIGGER dbo.trg_CapNhatTonKho;
+GO
+
+CREATE TRIGGER dbo.trg_CapNhatTonKho
+ON [ChiTietHoaDon]
+AFTER INSERT
+AS
+BEGIN
+    -- Cập nhật bảng SanPham dựa trên số lượng từ bảng tạm 'inserted'
+    UPDATE [SanPham]
+    SET [SoLuongTon] = [SoLuongTon] - i.SoLuongBan
+    FROM [SanPham] S
+    INNER JOIN inserted i ON S.MaSanPham = i.MaSanPham;
+END;
+GO
+```
+
+<img width="2559" height="1599" alt="image" src="https://github.com/user-attachments/assets/e29bdf43-d226-49c9-bec7-4227374a9d8e" />
+
+<img width="2559" height="1599" alt="image" src="https://github.com/user-attachments/assets/34a81c0d-1083-48ab-8e22-7e1c1227fb1d" />
+
+### 2.Thử viết Trigger cho Bảng A : Khi insert thì cập nhật dữ liệu vào bảng B; sau đó viết trigger cho bảng B để khi B được cập nhật thì cập nhật sang bảng A : Quan sát các thông báo (nếu có) của hệ thống, giải thích các thông báo đó (nếu có). Đưa ra nhật xét cuối cùng về tình trạng này.
+
+1. Thiết lập bảng và Trigger
+
+Giả sử chúng ta có bảng SanPham (Bảng A) và bảng NhatKyGia (Bảng B).
+```sql
+-- Tạo bảng A và B
+CREATE TABLE A (ID INT PRIMARY KEY, Val INT);
+CREATE TABLE B (ID INT PRIMARY KEY, Val INT);
+GO
+
+-- Trigger 1: Insert vào A -> Update vào B
+CREATE TRIGGER trg_A_to_B ON A AFTER INSERT
+AS
+BEGIN
+    UPDATE B SET Val = (SELECT Val FROM inserted) WHERE ID = (SELECT ID FROM inserted);
+END;
+GO
+
+-- Trigger 2: Update vào B -> Update vào A
+CREATE TRIGGER trg_B_to_A ON B AFTER UPDATE
+AS
+BEGIN
+    UPDATE A SET Val = (SELECT Val FROM inserted) WHERE ID = (SELECT ID FROM inserted);
+END;
+GO
+```
+
+<img width="2559" height="1599" alt="image" src="https://github.com/user-attachments/assets/a72ca7fb-2f94-4ad2-9467-52c1f078df00" />
+
+2. Thực thi lệnh gây lỗi
+```sql
+INSERT INTO A VALUES (1, 100);
+```
+<img width="2544" height="1599" alt="image" src="https://github.com/user-attachments/assets/6f286f7c-502d-468d-9c63-28ccde9b67c8" />
+
+# Phần 5: Cursor và Duyệt dữ liệu (Kiến thức 11)
+
+1. Viết một đoạn script sử dụng CURSOR để duyệt qua danh sách của 1 câu lệnh SQL dạng SELECT, duyệt qua từng bản ghi, xử lý riêng từng bản ghi (THEO LOGIC SV TỰ ĐẶT RA: SAO CHO HỢP LÝ VÀ THUYẾT PHỤC)
+
+```sql
+-- Khai báo các biến để lưu dữ liệu của từng bản ghi
+DECLARE @MaSP INT;
+DECLARE @DonGia MONEY;
+DECLARE @GiaMoi MONEY;
+
+-- Khai báo CURSOR để lấy danh sách sản phẩm
+DECLARE cur_SanPham CURSOR FOR 
+SELECT MaSanPham, DonGia FROM [SanPham];
+
+-- Mở CURSOR
+OPEN cur_SanPham;
+
+-- Lấy dòng đầu tiên
+FETCH NEXT FROM cur_SanPham INTO @MaSP, @DonGia;
+
+-- Duyệt qua từng bản ghi cho đến khi hết
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    -- Logic nghiệp vụ phức tạp
+    IF (@DonGia % 1000 <> 0)
+    BEGIN
+        -- Nếu lẻ, làm tròn lên hàng nghìn
+        SET @GiaMoi = CEILING(@DonGia / 1000) * 1000;
+    END
+    ELSE
+    BEGIN
+        -- Nếu chẵn, giảm 2%
+        SET @GiaMoi = @DonGia * 0.98;
+    END
+
+    -- Cập nhật giá mới cho sản phẩm hiện tại
+    UPDATE [SanPham] SET DonGia = @GiaMoi WHERE MaSanPham = @MaSP;
+
+    -- Lấy dòng tiếp theo
+    FETCH NEXT FROM cur_SanPham INTO @MaSP, @DonGia;
+END;
+
+-- Đóng và giải phóng CURSOR
+CLOSE cur_SanPham;
+DEALLOCATE cur_SanPham;
+GO
+```
+<img width="2559" height="1599" alt="image" src="https://github.com/user-attachments/assets/7c75a1a3-0019-4791-b781-198c8ae1dbc9" />
+
+<img width="2559" height="1599" alt="image" src="https://github.com/user-attachments/assets/6bb02e57-49ba-43de-9fa4-98b5300de568" />
+
+2. Tìm cách không sử dụng CURSOR để giải quyết bài toán mà em đã dùng CURSOR mới giải quyết được ở trên. thử so sánh tốc độ giữa có dùng cursor và không dùng cursor (nếu cùng kết quả) thì thời gian xử lý cái nào nhanh hơn, cần ảnh chụp màn hình minh chứng.
+
+Giải pháp Set-based (Không dùng CURSOR)
+
+Thay vì dùng vòng lặp, ta sử dụng câu lệnh UPDATE kết hợp với biểu thức CASE để áp dụng logic cho tất cả dòng cùng lúc:
+```sql
+UPDATE [SanPham]
+SET DonGia = CASE 
+    -- Nếu lẻ, làm tròn lên hàng nghìn
+    WHEN (DonGia % 1000 <> 0) THEN CEILING(DonGia / 1000.0) * 1000
+    -- Nếu chẵn, giảm 2%
+    ELSE DonGia * 0.98
+END;
+```
+
+<img width="2559" height="1599" alt="image" src="https://github.com/user-attachments/assets/6d61934c-312e-4127-a64d-d18b8b3ae4f7" />
+
+<img width="2559" height="1599" alt="image" src="https://github.com/user-attachments/assets/7857b1d0-4242-4669-8af1-24b50490bcab" />
+
+### So sánh hiệu năng: CURSOR vs. Set-based Approach
+
+| Đặc điểm | Cách dùng CURSOR | Cách dùng Set-based (UPDATE) |
+| :--- | :--- | :--- |
+| **Cách hoạt động** | Duyệt từng dòng một (Row-by-row). | Xử lý toàn bộ tập dữ liệu (Set-based). |
+| **Tốc độ** | Chậm (do overhead của vòng lặp). | **Rất nhanh** (được tối ưu bởi SQL Engine). |
+| **Tài nguyên** | Chiếm dụng nhiều CPU/Memory. | Tiết kiệm tài nguyên, thực thi trực tiếp. |
+| **Độ phức tạp** | Cao (cần khai báo, mở, đóng, giải phóng). | Thấp (chỉ cần một câu lệnh truy vấn). |
+| **Khuyên dùng** | Chỉ dùng khi logic quá phức tạp. | **Nên dùng mặc định** trong mọi trường hợp. |
+
+3. Nếu vẫn tìm được cách dùng SQL để giải quyết vấn đề mà ko cần CURSOR: thử nghĩ bài toán khác, mà chỉ CURSOR mới giải quyết được, còn SQL rất khó giải quyết đc (theo logic suy nghĩ của em)
+
+Bài toán: "Tính toán số dư lũy kế có điều kiện dừng dựa trên hạn mức"
+Giả sử chúng ta có bảng GiaoDich (ID, SoTien). Chúng ta muốn duyệt qua các giao dịch theo thứ tự thời gian và tính số dư tích lũy. Điều kiện đặc biệt: Nếu tại bất kỳ thời điểm nào, số dư tích lũy vượt quá 100.000.000đ, chúng ta phải dừng ngay lập tức và ghi lại ID của giao dịch đã làm "vỡ" hạn mức đó vào một bảng log.
+
+Tại sao SQL thuần rất khó thực hiện?
+SQL thuần (như SUM() OVER(...)) tính toán trên toàn bộ tập dữ liệu, nó không có khái niệm "dừng" giữa chừng dựa trên giá trị tích lũy.
+
+Chúng ta không thể dùng BREAK hoặc RETURN ngay giữa một câu lệnh SELECT hay UPDATE.
+```sql
+DECLARE @ID INT, @SoTien MONEY, @TongTichLuy MONEY = 0;
+
+DECLARE cur_GiaoDich CURSOR FOR 
+SELECT ID, SoTien FROM GiaoDich ORDER BY ThoiGian;
+
+OPEN cur_GiaoDich;
+FETCH NEXT FROM cur_GiaoDich INTO @ID, @SoTien;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @TongTichLuy = @TongTichLuy + @SoTien;
+
+    -- Logic dừng xử lý ngay lập tức khi đạt ngưỡng
+    IF @TongTichLuy > 100000000
+    BEGIN
+        INSERT INTO LogVuotHanMuc (IDGiaoDich, ThoiGianVuot) VALUES (@ID, GETDATE());
+        PRINT 'Đã chạm ngưỡng! Dừng duyệt tại ID: ' + CAST(@ID AS VARCHAR);
+        BREAK; -- Chỉ CURSOR mới làm được việc này một cách tường minh
+    END
+
+    FETCH NEXT FROM cur_GiaoDich INTO @ID, @SoTien;
+END;
+
+CLOSE cur_GiaoDich;
+DEALLOCATE cur_GiaoDich;
+```
+<img width="2559" height="1599" alt="image" src="https://github.com/user-attachments/assets/3cc5f437-04af-4ee6-9fd1-5b946ac497dc" />
+
+Mặc dù nguyên tắc vàng trong SQL là 'Set-based over Row-based', nhưng CURSOR vẫn là công cụ không thể thay thế trong các bài toán lập trình sự kiện (Event-driven) hoặc logic kiểm soát trạng thái (State-control logic). Khi bài toán yêu cầu phải đưa ra quyết định 'dừng lại' hoặc 'rẽ nhánh' dựa trên kết quả tích lũy của các dòng trước đó, CURSOR cung cấp sự linh hoạt mà các câu lệnh SQL thuần không thể đáp ứng được.
+
+Bài toán này cực kỳ thuyết phục vì nó cho thấy chúng ta hiểu sâu về cả hai tư duy: Tối ưu tập hợp (SQL thuần) và Kiểm soát logic (CURSOR)
